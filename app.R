@@ -20,7 +20,7 @@ library(shinycssloaders)
 
 
 library(conjugator)
-paper_git_dir = "../../conjugator_paper/"
+paper_git_dir = "../conjugator_paper_git/"
 
 source(paste0(paper_git_dir, "R/model_functions.R"))
 source(paste0(paper_git_dir, "R/plotting_functions.R"))
@@ -154,15 +154,18 @@ ui <- fluidPage(theme = shinytheme("flatly"),
                                                                                   "text/comma-separated-values,text/plain",
                                                                                   ".csv"),
                                                                        placeholder = "No file selected"),
-                                                             selectInput("id_cols", "Identifying columns (to be included in output)",
+                                                             p('If previously uploaded data is not removed, 
+                                                                the app will attempt a full join of the old and the new data.'),
+                                                             selectInput("id_cols", "Identifying columns",
                                                                          multiple = TRUE,
                                                                          choices = colnames(example_data), 
                                                                          selected = "ID"),
-                                                             p('If previously uploaded data is not removed, 
-                                                                the app will attempt a full join of the old and the new data.'),
+                                                             p('These columns will be included in the output, and used to match
+                                                               DRT and TRT data entries.'),
                                                              bsButton("trash_dataDRT", label = "Remove DRT data", icon = icon("trash")),
                                                              h3("Example DRT Data"),
-                                                             checkboxInput("exampledata", "Show Example", value = TRUE)
+                                                             checkboxInput("exampledata", "Show Example", value = TRUE),
+                                                             downloadButton("save_exampledata", "Download example data"),
                                                            ),
                                                            mainPanel(
                                                              DTOutput("editdataDRT")
@@ -179,6 +182,8 @@ ui <- fluidPage(theme = shinytheme("flatly"),
                                                                                   "text/comma-separated-values,text/plain",
                                                                                   ".csv"),
                                                                        placeholder = "No file selected"),
+                                                             p('Please make sure the DRT and TRT data
+                                                               have the same ID columns (specified on the DRT tab).'),
                                                              bsButton("trash_dataTRT", label = "Remove TRT data", icon = icon("trash"))
                                                            ),
                                                            mainPanel(
@@ -247,11 +252,12 @@ ui <- fluidPage(theme = shinytheme("flatly"),
                                                                               placement = "right", trigger = "hover")
                                                                   )), #wellpanel + column 4
                                                            column(width = 8, 
-                                                                  #div(id = "info_crittime_estimates", class = 'leftAlign', icon(name = "info-circle")),
+                                                                  div(id = "info_crittime_estimates", class = 'rightAlign', icon(name = "info-circle")),
                                                                   conditionalPanel(condition = "input.userdataTRT == null",
                                                                                    p("To estimate all critical times, ",
                                                                                      "please upload data for the TRT experiment.")),
-                                                                  withMathJax(tableOutput("time_estimates"))
+                                                                  #withMathJax(tableOutput("time_estimates"))
+                                                                  withMathJax(dataTableOutput("time_estimates"))
                                                            ) #column width 8
                                                          ), # fluidrow
                                                          br(),
@@ -266,36 +272,46 @@ ui <- fluidPage(theme = shinytheme("flatly"),
                            # Simulation panel ----
                            tabPanel("Simulate population dynamics",
                                     fluidRow(
-                                      column(width = 12, withMathJax(includeMarkdown("simulation_plot_intro.md")))
+                                      column(width = 12, withMathJax(includeMarkdown("simulation_plot_intro.md")),
+                                             withMathJax(includeMarkdown("simulation_plot_explanation.md")) )
                                     ),
                                     fluidRow(
-                                      column(width = 6, withMathJax(includeMarkdown("simulation_plot_explanation.md"))),
-                                      ## Model inputs ----
                                       column(width = 6, wellPanel(
                                         div(id = "info_model", class = 'rightAlign', icon(name = "info-circle")),
-                                        selectInput("model", "Model to use",
+                                        selectInput("model", "Simulation model to use",
                                                     choices = list("Simonsen Model" = "model_SM", 
                                                                    "Simonsen Extended Model" = "model_ESM",
                                                                    "Approximate Extended Simonsen Model" = "model_ASM"), 
                                                     selected = "model_ESM"),
                                         sliderInput("tend", label = "Measurement time point (hr)",
                                                     min = 0, max = 48, value = 24, step = 0.2),
-                                        div(id = "info_crittimes", class = 'rightAlign', icon(name = "info-circle")),
-                                        checkboxInput("t.crit", "Display critical times", value = TRUE),
+                                        checkboxInput("t_crit", "Display critical times", value = TRUE),
+                                                       conditionalPanel(condition = "input.t_crit",
+                                                                        htmlOutput("crittime_text"))
+                                                       ) 
+                                             ),
+                                      ## Model inputs ----
+                                      column(width = 6, wellPanel(
+                                        checkboxGroupInput("estim_select", 
+                                                           "Estimation methods", 
+                                                           choices = list("SM", 
+                                                                          "ASM", 
+                                                                          "T_DR",
+                                                                          "TD",
+                                                                          "T_RT",
+                                                                          "Dionisio",
+                                                                          "|Gama|" = "Gama"),
+                                                           selected = c("SM", "ASM")),
                                         downloadButton("saveplot", "Plots"),
                                         downloadButton("save_output", "Simulation Output\n and Parameters")
-                                      )) # column/wellpanel
+                                        )) # column/wellpanel
                                     ),
                                     fluidRow(
-                                      column(width = 4, h3("Population dynamics", align = "center"), 
+                                      column(width = 5, h3("Population dynamics", align = "center"), 
                                              withSpinner(plotOutput("interactive_dyn_plot"), 
                                                          size = .5, type = 3, 
                                                          color = '#2c3e50', color.background = 'white')),
-                                      column(width = 4, h3("Estimated growth rate", align = "center"),
-                                             withSpinner(plotOutput("interactive_growth_plot"), size = .5,
-                                                         type = 3,
-                                                         color = '#2c3e50', color.background = 'white')),
-                                      column(width = 4, h3("Estimated conjugation rate", align = "center"),
+                                      column(width = 7, h3("Estimated conjugation rate", align = "center"),
                                              withSpinner(plotOutput("interactive_conj_plot"),
                                                          size = .5, type = 3,
                                                          color = '#2c3e50', color.background = 'white'))
@@ -510,15 +526,34 @@ server <- function(input, output, session) {
     # Do not compute if data() is empty
     req(dim(dataDRT())[1]>1)
     
-    time_crit <- suppressWarnings(estimate_crit_time(dataDRT(), user_dataTRT(), tol_factor = 10, id_cols = input$id_cols))
+    time_crit <- suppressWarnings(estimate_crit_time(dataDRT(), user_dataTRT(), 
+                                                     tol_factor = 10, id_cols = input$id_cols, verbose = F))
     
     return(time_crit)
   })
   
   ## table ##
-  output$time_estimates <- renderTable({
+  # output$time_estimates <- renderTable({
+  #   req(data_time_crit(), cancelOutput = TRUE)
+  #   print(data_time_crit())
+  #   data_time_crit()
+  # })
+  
+  output$time_estimates <- renderDataTable({
     req(data_time_crit(), cancelOutput = TRUE)
-    data_time_crit()
+    
+    DT::datatable(data_time_crit(),
+                  rownames = FALSE,
+                  options = list(dom = 't', pageLength = -1, ordering = FALSE,
+                                 rowCallback = 
+                                   JS(
+                                     "function(row, data) {
+                                     for (i = 1; i < data.length; i++) {
+                                     if (data[i]>1000 | data[i]<1){
+                                     $('td:eq('+i+')', row).html(data[i].toExponential(1));}}
+                                     }")
+                  )
+    )
   })
   
   ## plot ##
@@ -527,7 +562,7 @@ server <- function(input, output, session) {
     req(dim(dataDRT())[1]>1)
     req(length(input$id_cols)>0)
     
-    plot_crittimes_sweep(dataDRT(), id_cols = input$id_cols)
+    plot_crittimes_sweep(dataDRT(), id_cols = input$id_cols, verbose = F)
   })
   
   ##################################
@@ -539,7 +574,8 @@ server <- function(input, output, session) {
       ids = "ID"
     } else {ids = input$id_cols}
     
-    long_conj_rates <- estimate_conj_rate(dataDRT(), method = input$selected_estimates, id_cols = input$id_cols)
+    long_conj_rates <- estimate_conj_rate(dataDRT(), method = input$selected_estimates, 
+                                          id_cols = input$id_cols, verbose = F)
     conj_rates <- pivot_wider(long_conj_rates, id_cols = all_of(ids), 
                               names_from = 'method', values_from = 'estimate')
     
@@ -570,6 +606,13 @@ server <- function(input, output, session) {
   
   ##################################
   # Downloadable csv of selected dataset ----
+  output$save_exampledata <- downloadHandler(
+    filename = "example_DRT.csv",
+    content = function(file) {
+      write.csv(complete_dataframe, file, row.names = FALSE)
+    }
+  )
+  
   output$downloadData <- downloadHandler(
     filename = "conjugation_rates.csv",
     content = function(file) {
@@ -668,8 +711,8 @@ server <- function(input, output, session) {
   })
   
   crit_time <- reactive({
-    if(input$t.crit) {
-      crit_times <- estimate_crittime_from_sim(parms(), vars(), tol_factor = 10)
+    if(input$t_crit) {
+      crit_times <- estimate_crittime_from_sim(parms(), vars(), tol_factor = 10, verbose = F)
     } else {
       crit_times = NULL
     }
@@ -683,9 +726,19 @@ server <- function(input, output, session) {
   growth_plot <- reactive({ plot_growth_rate_ggplot(out(), parms(), crit_time() ) })
   output$interactive_growth_plot <- renderPlot({ growth_plot() })
   
-  conj_plot <- reactive({ plot_conj_rate_ggplot(out(), parms(), crit_time() ) })
+  conj_plot <- reactive({ plot_conj_rate_ggplot(out(), parms(), crit_time(), input$estim_select ) })
   output$interactive_conj_plot <- renderPlot({ conj_plot() }) 
   
+  ## Crit time infobox ####
+  
+  output$crittime_text <- renderText({ 
+    paste0(
+      strong("1st critical time: "), crit_time()$tcrit1, br(),
+      strong("2nd critical time: "), crit_time()$tcrit2, br(),
+      strong("3rd critical time: "), crit_time()$tcrit3, br(),
+      strong("Minimal critical time: "), crit_time()$min_tcrit
+      )
+  })
   
   ###########################
   # Downloadable plots of simulation ----
@@ -694,13 +747,13 @@ server <- function(input, output, session) {
       paste('popdynamic_simulation', ".pdf", sep = "")
     },
     content = function(file) {
-      all_p_row <- plot_grid( dyn_plot(), growth_plot(), conj_plot(),
-                              nrow = 1, ncol = 3,
+      all_p_row <- plot_grid( dyn_plot(), conj_plot(),
+                              nrow = 1, ncol = 2,
                               label_size = 15) 
       
       title <- ggdraw() +
         draw_label(
-          "Produced using Conjugator. Huisman et al. 2020",
+          "Produced using Conjugator. Huisman et al. 2021",
           fontface = 'bold',
           x = 0,
           hjust = 0
@@ -732,18 +785,19 @@ server <- function(input, output, session) {
       # and measurement timepoint + model
       current_vars <- vars()
       if(length(current_vars)== 4){
-        names(current_vars) <- c("R0", "T0", "D0", "C0")
+        names(current_vars) <- c("R.0", "T.0", "D.0", "C.0")
       } else {
-        names(current_vars) <- c("R0", "T0", "D0")
+        names(current_vars) <- c("R.0", "T.0", "D.0")
       }
+      
+      add_params <- c(out()[dim(out())[1], c("r", "t", "d")],
+                    input$tend, input$model)
+      names(add_params) <- c('R.t', 'T.t', 'D.t', 't', 'model')
       
       sim_params <- c(current_vars, 
                       parms()[c("psi.R", "psi.T", "psi.D",
                                 "gamma.t","gamma.d")],
-                      out()[dim(out())[1], c("r", "t", "d")],
-                      input$tend, input$model)
-      
-      
+                      add_params)
       
       write.csv(sim_params, file, row.names = FALSE)
     }
@@ -774,22 +828,52 @@ server <- function(input, output, session) {
              placement = "top",
              trigger = "hover", options = list(container = "body"))
   
-  # addPopover(session, "info_crittime_estimates", "Critical time estimates", 
-  #            paste0("The critical times indicate when the ",
-  #                   "assumptions underlying the (extended) Simonsen model",
-  #                   " are expected to break down.<br>",
-  #                   "tcrit1 describes when conjugation from transconjugants outweighs conjugation from donors.<br>",
-  #                   "tcrit2, tcrit3 describe when the recipient population is depleted by ",
-  #                   "conjugation from donors or transconjugants respectively.<br>",
-  #                   "Estimates obtained after the first critical time is reached, ",
-  #                   "will most likely deviate from the true value of the conjugation rate."), 
-  #            placement = "top",
-  #            trigger = "hover", options = list(container = "body"))
+  addPopover(session, "info_crittime_estimates", "Critical time estimates",
+             paste0("The critical times indicate when the ",
+                    "assumptions underlying the (extended) Simonsen model",
+                    " are expected to break down.<br>",
+                    "tcrit1 describes when conjugation from transconjugants outweighs conjugation from donors.<br>",
+                    "tcrit2, tcrit3 describe when the recipient population is depleted by ",
+                    "conjugation from donors or transconjugants respectively.<br>",
+                    "Estimates obtained after the first critical time is reached, ",
+                    "will most likely deviate from the true value of the conjugation rate."),
+             placement = "top",
+             trigger = "hover", options = list(container = "body"))
   
   ## Info on simulations ----
+  addPopover(session, "info_model", "Simulation model", 
+             paste0("Three population dynamic models can be selected:<br>",
+                    "the Simonsen model, which assumes all growth and conjugation",
+                    " rates are the same,<br>",
+                    "the extended Simonsen model, which relaxes these assumptions,<br>",
+                    "and the ASM, which simplifies the extended Simonsen ",
+                    "model to a case with infinite resources."), 
+             placement = "top",
+             trigger = "hover", options = list(container = "body"))
+  
   addPopover(session, "info_init_pop", "Initial conditions", 
              paste0("These parameters govern the initial population sizes",
                     " in CFU/mL.<br>"), 
+             placement = "top",
+             trigger = "hover", options = list(container = "body"))
+  
+  addPopover(session, "info_growthrates", "Growth rates", 
+             paste0("These parameters govern the growth rates",
+                    " of the bacterial populations. Rates are measured",
+                    " per hour.<br>",
+                    "If the Simonsen model is selected,",
+                    " growth rates are assumed equal for all populations.<br>",
+                    "In the ESM and ASM, ",
+                    "growth rates can be set independently for all populations."), 
+             placement = "top",
+             trigger = "hover", options = list(container = "body"))
+  
+  addPopover(session, "info_conjrates", "Conjugation rates", 
+             paste0("These parameters govern the conjugation rates.<br>",
+                    "If the Simonsen model is selected, ",
+                    "conjugation rates are assumed equal for all populations.<br>",
+                    "In the ESM and ASM, ",
+                    "conjugation rates can be set independently for all populations."), 
              placement = "top",
              trigger = "hover", options = list(container = "body"))
   
@@ -819,45 +903,8 @@ server <- function(input, output, session) {
                     "and we will suggest a C0 value to set for the simulations."),
              placement = "top",
              trigger = "hover", options = list(container = "body"))
-  
-  addPopover(session, "info_growthrates", "Growth rates", 
-             paste0("These parameters govern the growth rates",
-                    " of the bacterial populations. Rates are measured",
-                    " per hour.<br>",
-                    "If the Simonsen model is selected,",
-                    " growth rates are assumed equal for all populations.<br>",
-                    "In the ESM and ASM, ",
-                    "growth rates can be set independently for all populations."), 
-             placement = "top",
-             trigger = "hover", options = list(container = "body"))
-  
-  addPopover(session, "info_conjrates", "Conjugation rates", 
-             paste0("These parameters govern the conjugation rates.<br>",
-                    "If the Simonsen model is selected, ",
-                    "conjugation rates are assumed equal for all populations.<br>",
-                    "In the ESM and ASM, ",
-                    "conjugation rates can be set independently for all populations."), 
-             placement = "top",
-             trigger = "hover", options = list(container = "body"))
-  
-  addPopover(session, "info_model", "Simulation model", 
-             paste0("Three population dynamic models can be selected:<br>",
-                    "the Simonsen model, which assumes all growth and conjugation",
-                    " rates are the same,<br>",
-                    "the extended Simonsen model, which relaxes these assumptions,<br>",
-                    "and the ASM, which simplifies the extended Simonsen ",
-                    "model to a case with infinite resources."), 
-             placement = "top",
-             trigger = "hover", options = list(container = "body"))
-  
-  addPopover(session, "info_crittimes", "Critical times", 
-             paste0("The critical times indicate when the ",
-                    "assumptions underlying the (extended) Simonsen model",
-                    " are expected to break down.<br>",
-                    "Estimates obtained after the first critical time is reached, ",
-                    "will most likely deviate from the true value of the conjugation rate."), 
-             placement = "top",
-             trigger = "hover", options = list(container = "body"))
+
+
   
 }
 
